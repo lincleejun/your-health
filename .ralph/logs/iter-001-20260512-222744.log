@@ -1,0 +1,3 @@
+Completed harness-01: added `db_conn` in-memory SQLite fixture and `tests/fixtures/garmin/` dir. Verify gate green.
+
+RALPH_DONE_ITERATION
