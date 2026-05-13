@@ -55,9 +55,9 @@ Order matters — earlier tasks unblock later ones.
 - [ ] **🛑 USER TEST GATE**: User runs `uv run health ingest --days 7` against their Garmin account and confirms data lands in `data/health.db`. **Loop must STOP and print `RALPH_USER_GATE` here.**
 
 ### Metrics (parallelisable after ingest)
-- [ ] **metrics-01**: `src/health/metrics/load.py` — CTL (42d EWMA), ATL (7d EWMA), ACWR (ATL/CTL). Input: `activities` rows. Output: dict keyed by date.
-- [ ] **metrics-02**: `src/health/metrics/physiology.py` — 7d/28d trends for RHR, HRV weekly_avg, sleep total. Flag anomalies (>1 SD from 28d mean).
-- [ ] **metrics-03**: `src/health/metrics/activity.py` — weekly mileage by sport, HR zone time-in-zone (uses athlete max/resting HR from `plan.yaml`).
+- [x] **metrics-01**: `src/health/metrics/load.py` — CTL (42d EWMA), ATL (7d EWMA), ACWR (ATL/CTL). Input: `activities` rows. Output: dict keyed by date.
+- [x] **metrics-02**: `src/health/metrics/physiology.py` — 7d/28d trends for RHR, HRV weekly_avg, sleep total. Flag anomalies (>1 SD from 28d mean).
+- [x] **metrics-03**: `src/health/metrics/activity.py` — weekly mileage by sport, HR zone time-in-zone (uses athlete max/resting HR from `plan.yaml`).
 
 ### Report (parallelisable after metrics)
 - [ ] **report-01**: `src/health/report/render.py` — Markdown template helpers (KPI table, trend bullets, sparkline ASCII).
