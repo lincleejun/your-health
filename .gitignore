@@ -5,7 +5,11 @@
 
 # personal config & data
 config/plan.yaml
+config/.garmin_tokens/
 data/
+
+# ralph loop transcripts (may contain personal data)
+.ralph/
 
 # python
 __pycache__/
