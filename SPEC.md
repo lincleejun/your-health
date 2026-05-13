@@ -48,8 +48,8 @@ Order matters — earlier tasks unblock later ones.
 
 ### Ingest (priority — unblocks user testing)
 - [x] **ingest-01**: `src/health/ingest/models.py` — Pydantic models for `Activity`, `DailySummary`, `Sleep`, `HrvDay`, `BodyComposition`. Each has a `from_garmin(payload: dict) -> Self` classmethod tolerant of missing fields.
-- [ ] **ingest-02**: `src/health/ingest/garmin.py` — thin wrapper around `garminconnect.Garmin`. Persists OAuth tokens to `GARMIN_TOKEN_DIR` so we don't re-login every run. Exposes `fetch_day(date)` returning a typed bundle and `fetch_activities(start, end)`.
-- [ ] **ingest-03**: `src/health/ingest/store.py` — UPSERT functions per table (`ON CONFLICT ... DO UPDATE`). Idempotent: re-ingesting the same date overwrites cleanly.
+- [x] **ingest-02**: `src/health/ingest/garmin.py` — thin wrapper around `garminconnect.Garmin`. Persists OAuth tokens to `GARMIN_TOKEN_DIR` so we don't re-login every run. Exposes `fetch_day(date)` returning a typed bundle and `fetch_activities(start, end)`.
+- [x] **ingest-03**: `src/health/ingest/store.py` — UPSERT functions per table (`ON CONFLICT ... DO UPDATE`). Idempotent: re-ingesting the same date overwrites cleanly.
 - [ ] **ingest-04**: `src/health/ingest/runner.py` — `ingest_range(conn, client, start, end)` orchestrates per-day pulls, writes `ingest_runs` row, catches per-day errors so one bad day doesn't kill the run.
 - [ ] **cli-01**: `src/health/cli.py` — Typer app with `health ingest --days N [--start YYYY-MM-DD]`. Loads `.env`, opens DB (creates if missing), runs ingest, prints summary table via `rich`.
 - [ ] **🛑 USER TEST GATE**: User runs `uv run health ingest --days 7` against their Garmin account and confirms data lands in `data/health.db`. **Loop must STOP and print `RALPH_USER_GATE` here.**
