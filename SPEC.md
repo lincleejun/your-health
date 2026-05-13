@@ -47,7 +47,7 @@ Order matters — earlier tasks unblock later ones.
 - [x] **db-02**: `src/health/db/conn.py` exposing `connect(path: Path) -> sqlite3.Connection` (foreign keys on, row_factory=Row), `initialize(conn)` to run schema, and a `transaction(conn)` context manager.
 
 ### Ingest (priority — unblocks user testing)
-- [ ] **ingest-01**: `src/health/ingest/models.py` — Pydantic models for `Activity`, `DailySummary`, `Sleep`, `HrvDay`, `BodyComposition`. Each has a `from_garmin(payload: dict) -> Self` classmethod tolerant of missing fields.
+- [x] **ingest-01**: `src/health/ingest/models.py` — Pydantic models for `Activity`, `DailySummary`, `Sleep`, `HrvDay`, `BodyComposition`. Each has a `from_garmin(payload: dict) -> Self` classmethod tolerant of missing fields.
 - [ ] **ingest-02**: `src/health/ingest/garmin.py` — thin wrapper around `garminconnect.Garmin`. Persists OAuth tokens to `GARMIN_TOKEN_DIR` so we don't re-login every run. Exposes `fetch_day(date)` returning a typed bundle and `fetch_activities(start, end)`.
 - [ ] **ingest-03**: `src/health/ingest/store.py` — UPSERT functions per table (`ON CONFLICT ... DO UPDATE`). Idempotent: re-ingesting the same date overwrites cleanly.
 - [ ] **ingest-04**: `src/health/ingest/runner.py` — `ingest_range(conn, client, start, end)` orchestrates per-day pulls, writes `ingest_runs` row, catches per-day errors so one bad day doesn't kill the run.

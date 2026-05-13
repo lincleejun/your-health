@@ -1,0 +1,3 @@
+Completed db-02: added `connect`, `initialize`, and `transaction` in `src/health/db/conn.py` with tests covering FK pragma, schema init, idempotence, commit, and rollback. Verify gate green.
+
+RALPH_DONE_ITERATION
