@@ -52,7 +52,7 @@ def _resolve_range(days: int, start: date | None) -> tuple[date, date]:
     return end - timedelta(days=days - 1), end
 
 
-def _render_summary(summary: IngestSummary, elapsed: float) -> None:
+def _render_summary(summary: IngestSummary, elapsed: float, start_d: date, end_d: date) -> None:
     console = Console()
     table = Table(title="Garmin ingest summary", show_header=True, header_style="bold")
     table.add_column("field")
@@ -60,7 +60,7 @@ def _render_summary(summary: IngestSummary, elapsed: float) -> None:
 
     start_str = summary.started_at.isoformat(timespec="seconds")
     end_str = summary.finished_at.isoformat(timespec="seconds")
-    range_str = f"{summary.started_at.date()}..{summary.finished_at.date()}"
+    range_str = f"{start_d.isoformat()}..{end_d.isoformat()}"
 
     table.add_row("run_id", str(summary.run_id))
     table.add_row("range", range_str)
@@ -135,7 +135,7 @@ def ingest(
     t0 = time.monotonic()
     summary = ingest_range(conn, client, start_d, end_d)
     elapsed = time.monotonic() - t0
-    _render_summary(summary, elapsed)
+    _render_summary(summary, elapsed, start_d, end_d)
 
 
 if __name__ == "__main__":  # pragma: no cover
