@@ -1,0 +1,29 @@
+# env / secrets
+.env
+.env.*
+!.env.example
+
+# personal config & data
+config/plan.yaml
+data/
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# uv
+.uv/
+
+# worktrees
+.worktrees/
+
+# os
+.DS_Store
+
+# private project notes (kept locally, not in git)
+CLAUDE.md

@@ -1,0 +1,28 @@
+# Personal fitness plan — adherence is scored against this.
+# Copy to config/plan.yaml and edit. config/plan.yaml is gitignored.
+
+athlete:
+  name: "Your Name"
+  resting_hr: 55          # bpm, used to anchor HR zones
+  max_hr: 185             # bpm
+  weight_kg: 70
+
+context:
+  goal: "Build aerobic base; lose 3kg over 12 weeks"
+  constraints: "Knees flare up past 60min running"
+
+# Weekly targets the adherence scorer compares actual activity against.
+weekly_targets:
+  runs: 3
+  run_distance_km: 25
+  strength_sessions: 1
+  long_run_km: 10
+  sleep_hours_avg: 7.5
+  weekly_load_target: 350    # Garmin training load points; leave null to skip
+
+# Race / event anchors (optional). Used to colour weekly reports.
+events:
+  - name: "Local 10K"
+    date: "2026-08-15"
+    priority: "B"
+    target_time: "00:50:00"
