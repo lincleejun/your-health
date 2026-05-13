@@ -105,20 +105,26 @@ def test_fetch_activities_error_returns_empty(tmp_path: Path) -> None:
 def test_login_uses_cached_tokens_when_available(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """When token_dir has valid cached tokens, no credential login is attempted."""
+    """When tokenstore has valid cached tokens, no credential login is attempted."""
     cred_login_calls = 0
+
+    class FakeClient:
+        is_authenticated = True
+
+        def dump(self, path: str) -> None:
+            pass
 
     class FakeGarmin:
         def __init__(self, email: str | None = None, password: str | None = None) -> None:
             self.email = email
             self.password = password
-            self.garth = MagicMock()
+            self.client = FakeClient()
 
-        def login(self, token_dir: str | None = None) -> None:
+        def login(self, tokenstore: str | None = None) -> tuple[str | None, str | None]:
             nonlocal cred_login_calls
-            if token_dir is None:
-                # credential-based login path
+            if tokenstore is None:
                 cred_login_calls += 1
+            return None, None
 
     monkeypatch.setattr("health.ingest.garmin.Garmin", FakeGarmin)
     token_dir = tmp_path / "tokens"
@@ -132,7 +138,9 @@ def test_login_falls_back_to_credentials(tmp_path: Path, monkeypatch: pytest.Mon
     cred_login_calls = 0
     dump_calls: list[str] = []
 
-    class FakeGarth:
+    class FakeClient:
+        is_authenticated = True
+
         def dump(self, path: str) -> None:
             dump_calls.append(path)
 
@@ -140,13 +148,14 @@ def test_login_falls_back_to_credentials(tmp_path: Path, monkeypatch: pytest.Mon
         def __init__(self, email: str | None = None, password: str | None = None) -> None:
             self.email = email
             self.password = password
-            self.garth = FakeGarth()
+            self.client = FakeClient()
 
-        def login(self, token_dir: str | None = None) -> None:
+        def login(self, tokenstore: str | None = None) -> tuple[str | None, str | None]:
             nonlocal cred_login_calls
-            if token_dir is not None:
+            if tokenstore is not None:
                 raise FileNotFoundError("no cached tokens")
             cred_login_calls += 1
+            return None, None
 
     monkeypatch.setattr("health.ingest.garmin.Garmin", FakeGarmin)
     client = GarminClient("e@x", "pw", tmp_path / "tokens")
@@ -157,16 +166,18 @@ def test_login_falls_back_to_credentials(tmp_path: Path, monkeypatch: pytest.Mon
 
 def test_login_raises_on_rate_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Credential login that 429s must raise GarminLoginError, not AttributeError."""
+    from garminconnect import GarminConnectTooManyRequestsError
+
     from health.ingest.garmin import GarminLoginError
 
     class FakeGarmin:
         def __init__(self, email: str | None = None, password: str | None = None) -> None:
             pass
 
-        def login(self, token_dir: str | None = None) -> None:
-            if token_dir is not None:
+        def login(self, tokenstore: str | None = None) -> tuple[str | None, str | None]:
+            if tokenstore is not None:
                 raise FileNotFoundError("no cached tokens")
-            raise RuntimeError("Mobile login returned 429 — IP rate limited by Garmin")
+            raise GarminConnectTooManyRequestsError("429 from Garmin")
 
     monkeypatch.setattr("health.ingest.garmin.Garmin", FakeGarmin)
     client = GarminClient("e@x", "pw", tmp_path / "tokens")
@@ -174,22 +185,28 @@ def test_login_raises_on_rate_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPa
         client.login()
 
 
-def test_login_raises_when_garth_missing_after_login(
+def test_login_raises_when_session_not_authenticated(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """If SDK swallows a 429 internally, .garth is never attached — fail loudly."""
+    """If SDK login returns silently but session is not authenticated, fail loudly."""
     from health.ingest.garmin import GarminLoginError
+
+    class FakeClient:
+        is_authenticated = False
+
+        def dump(self, path: str) -> None:
+            pass
 
     class FakeGarmin:
         def __init__(self, email: str | None = None, password: str | None = None) -> None:
-            pass
+            self.client = FakeClient()
 
-        def login(self, token_dir: str | None = None) -> None:
-            if token_dir is not None:
+        def login(self, tokenstore: str | None = None) -> tuple[str | None, str | None]:
+            if tokenstore is not None:
                 raise FileNotFoundError("no cached tokens")
-            # Successful return but no .garth attached — mimic SDK swallowing the 429.
+            return None, None
 
     monkeypatch.setattr("health.ingest.garmin.Garmin", FakeGarmin)
     client = GarminClient("e@x", "pw", tmp_path / "tokens")
-    with pytest.raises(GarminLoginError, match="rate limiting"):
+    with pytest.raises(GarminLoginError, match="rate-limited"):
         client.login()

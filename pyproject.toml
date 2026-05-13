@@ -2,14 +2,15 @@
 name = "health"
 version = "0.1.0"
 description = "Personal health data analysis: Garmin → SQLite → Markdown reports + plan adherence"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
-    "garminconnect>=0.2.20",
+    "garminconnect>=0.3.3",
     "typer>=0.12.0",
     "python-dotenv>=1.0.0",
     "pyyaml>=6.0",
     "pydantic>=2.6",
     "rich>=13.7",
+    "garth>=0.8.0",
 ]
 
 [project.scripts]
@@ -33,13 +34,13 @@ dev = [
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 strict = true
 warn_return_any = true
 warn_unused_ignores = true

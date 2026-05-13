@@ -19,13 +19,9 @@ from typing import Any
 from garminconnect import (
     Garmin,
     GarminConnectAuthenticationError,
+    GarminConnectTooManyRequestsError,
+    HTTPError,
 )
-
-try:  # garth is a transitive dep of garminconnect
-    from garth.exc import GarthHTTPError
-except ImportError:  # pragma: no cover - safety net for older garth releases
-    # reason: garth<0.4 didn't expose this class; alias to a generic exception
-    GarthHTTPError = Exception
 
 log = logging.getLogger(__name__)
 
@@ -34,9 +30,10 @@ class GarminLoginError(RuntimeError):
     """Raised when both cached-token resume and credential login fail."""
 
 
-_LOGIN_EXC: tuple[type[BaseException], ...] = (
+# Exceptions that mean "cached tokens are gone or stale — fall back to creds".
+_RESUME_EXC: tuple[type[BaseException], ...] = (
     FileNotFoundError,
-    GarthHTTPError,
+    HTTPError,
     GarminConnectAuthenticationError,
 )
 
@@ -72,24 +69,24 @@ class GarminClient:
         self._token_dir.mkdir(parents=True, exist_ok=True)
         try:
             api = Garmin()
-            api.login(str(self._token_dir))
-        except _LOGIN_EXC as resume_exc:
+            api.login(tokenstore=str(self._token_dir))
+        except _RESUME_EXC as resume_exc:
             log.info("cached tokens unavailable (%s); logging in with credentials", resume_exc)
             api = Garmin(email=self._email, password=self._password)
             try:
                 api.login()
+            except GarminConnectTooManyRequestsError as exc:
+                raise GarminLoginError(_explain_rate_limit()) from exc
             except Exception as exc:
                 raise GarminLoginError(_explain_login_error(exc)) from exc
-            # The SDK only attaches `garth` after a successful login; if it's
-            # missing here the login silently failed (e.g. 429 swallowed
-            # internally) and we should not pretend we're authenticated.
-            if not hasattr(api, "garth"):
-                raise GarminLoginError(
-                    "Garmin login completed without attaching a session — "
-                    "the SDK likely hit rate limiting (HTTP 429). "
-                    "Wait 15-60 minutes and retry."
-                ) from None
-            api.garth.dump(str(self._token_dir))
+            # The SDK attaches its session as ``.client`` after a successful
+            # login; if it's missing or not authenticated the login failed
+            # silently (e.g. the SDK swallowed a 429) and we must not pretend
+            # we're authenticated.
+            client = getattr(api, "client", None)
+            if client is None or not getattr(client, "is_authenticated", False):
+                raise GarminLoginError(_explain_rate_limit()) from None
+            client.dump(str(self._token_dir))
         self._api = api
 
     def _require_api(self) -> Any:
@@ -125,15 +122,19 @@ class GarminClient:
         return list(result)
 
 
+def _explain_rate_limit() -> str:
+    return (
+        "Garmin rate-limited this IP (HTTP 429). "
+        "Wait 15-60 minutes, then retry. Repeated failures may require "
+        "logging in via the Garmin Connect app or website first."
+    )
+
+
 def _explain_login_error(exc: BaseException) -> str:
     """Produce a one-line, human-readable login-error message."""
     msg = str(exc) or exc.__class__.__name__
     if "429" in msg or "rate" in msg.lower():
-        return (
-            "Garmin rate-limited this IP (HTTP 429). "
-            "Wait 15-60 minutes, then retry. Repeated failures may require "
-            "logging in via the Garmin Connect app/website first."
-        )
+        return _explain_rate_limit()
     return f"Garmin login failed: {msg}"
 
 
