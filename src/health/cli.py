@@ -15,6 +15,9 @@ from rich.table import Table
 
 from health.db.conn import connect, initialize
 from health.ingest.garmin import GarminClient, GarminLoginError
+from health.plan.loader import PlanLoadError, load_plan
+from health.report import _runner
+from health.report.daily import render_daily_report
 
 # reason: sibling worktree owns runner.py; we type IngestSummary as Any to avoid
 # importing a module that doesn't yet exist on this branch. The shape is
@@ -136,6 +139,60 @@ def ingest(
     summary = ingest_range(conn, client, start_d, end_d)
     elapsed = time.monotonic() - t0
     _render_summary(summary, elapsed, start_d, end_d)
+
+
+report_app = typer.Typer(help="Render Markdown reports.", no_args_is_help=True)
+app.add_typer(report_app, name="report")
+
+
+@report_app.command("daily")
+def report_daily(
+    day: datetime = typer.Option(  # noqa: B008 reason: Typer idiom
+        ...,
+        "--date",
+        formats=["%Y-%m-%d"],
+        help="Day to render (YYYY-MM-DD).",
+    ),
+    db: Path = typer.Option(_DEFAULT_DB, "--db", help="SQLite database path."),  # noqa: B008
+    out: Path | None = typer.Option(  # noqa: B008
+        None, "--out", help="Write Markdown to this path instead of stdout."
+    ),
+) -> None:
+    """Render the daily Markdown report card."""
+    conn = _runner.open_db(db)
+    md = render_daily_report(conn, day=day.date())
+    _runner.emit(md, out)
+
+
+@report_app.command("weekly")
+def report_weekly(
+    week: str = typer.Option(..., "--week", help="ISO week, e.g. 2026-W18."),
+    db: Path = typer.Option(_DEFAULT_DB, "--db", help="SQLite database path."),  # noqa: B008
+    out: Path | None = typer.Option(  # noqa: B008
+        None, "--out", help="Write Markdown to this path instead of stdout."
+    ),
+    plan_path: Path | None = typer.Option(  # noqa: B008
+        None, "--plan", help="Optional plan.yaml — enables adherence scoring."
+    ),
+) -> None:
+    """Render the weekly Markdown dashboard."""
+    iso_year, iso_week = _runner.parse_iso_week(week)
+    plan = None
+    if plan_path is not None:
+        try:
+            plan = load_plan(plan_path)
+        except PlanLoadError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(1) from exc
+    # reason: sibling worktree may add a ``plan`` kwarg to render_weekly_report.
+    # Import dynamically so tests can monkeypatch the attribute post-import.
+    import importlib
+
+    render_weekly = importlib.import_module("health.report.weekly").render_weekly_report
+    kwargs: dict[str, Any] = {"iso_year": iso_year, "iso_week": iso_week}
+    if plan is not None:
+        kwargs["plan"] = plan
+    _runner.emit(render_weekly(_runner.open_db(db), **kwargs), out)
 
 
 if __name__ == "__main__":  # pragma: no cover
