@@ -153,3 +153,43 @@ def test_login_falls_back_to_credentials(tmp_path: Path, monkeypatch: pytest.Mon
     client.login()
     assert cred_login_calls == 1
     assert len(dump_calls) == 1
+
+
+def test_login_raises_on_rate_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Credential login that 429s must raise GarminLoginError, not AttributeError."""
+    from health.ingest.garmin import GarminLoginError
+
+    class FakeGarmin:
+        def __init__(self, email: str | None = None, password: str | None = None) -> None:
+            pass
+
+        def login(self, token_dir: str | None = None) -> None:
+            if token_dir is not None:
+                raise FileNotFoundError("no cached tokens")
+            raise RuntimeError("Mobile login returned 429 — IP rate limited by Garmin")
+
+    monkeypatch.setattr("health.ingest.garmin.Garmin", FakeGarmin)
+    client = GarminClient("e@x", "pw", tmp_path / "tokens")
+    with pytest.raises(GarminLoginError, match="rate-limited"):
+        client.login()
+
+
+def test_login_raises_when_garth_missing_after_login(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If SDK swallows a 429 internally, .garth is never attached — fail loudly."""
+    from health.ingest.garmin import GarminLoginError
+
+    class FakeGarmin:
+        def __init__(self, email: str | None = None, password: str | None = None) -> None:
+            pass
+
+        def login(self, token_dir: str | None = None) -> None:
+            if token_dir is not None:
+                raise FileNotFoundError("no cached tokens")
+            # Successful return but no .garth attached — mimic SDK swallowing the 429.
+
+    monkeypatch.setattr("health.ingest.garmin.Garmin", FakeGarmin)
+    client = GarminClient("e@x", "pw", tmp_path / "tokens")
+    with pytest.raises(GarminLoginError, match="rate limiting"):
+        client.login()

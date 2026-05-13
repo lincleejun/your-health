@@ -1,0 +1,3 @@
+Completed ingest-01: Pydantic models for Activity, DailySummary, Sleep, HrvDay, BodyComposition with tolerant `from_garmin` classmethods. 10 new tests, full verify gate green.
+
+RALPH_DONE_ITERATION

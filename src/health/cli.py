@@ -14,7 +14,7 @@ from rich.console import Console
 from rich.table import Table
 
 from health.db.conn import connect, initialize
-from health.ingest.garmin import GarminClient
+from health.ingest.garmin import GarminClient, GarminLoginError
 
 # reason: sibling worktree owns runner.py; we type IngestSummary as Any to avoid
 # importing a module that doesn't yet exist on this branch. The shape is
@@ -118,6 +118,9 @@ def ingest(
     try:
         client = GarminClient(email=email, password=password, token_dir=token_dir)
         client.login()
+    except GarminLoginError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
     except Exception as exc:
         typer.echo(f"Garmin login failed: {exc}", err=True)
         raise typer.Exit(1) from exc
