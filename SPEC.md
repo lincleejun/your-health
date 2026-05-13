@@ -63,14 +63,14 @@ Order matters — earlier tasks unblock later ones.
 - [x] **report-01**: `src/health/report/render.py` — Markdown template helpers (KPI table, trend bullets, sparkline ASCII).
 - [x] **report-02**: `src/health/report/daily.py` — one-day card: yesterday's activity, sleep, HRV, body battery, vs 7d mean.
 - [x] **report-03**: `src/health/report/weekly.py` — KPI dashboard (load, physiology, activity), week-over-week trend, top anomalies.
-- [ ] **cli-02**: Add `health report daily` and `health report weekly` subcommands. Writes to `data/reports/{daily,weekly}/<date>.md`.
+- [x] **cli-02**: Add `health report daily` and `health report weekly` subcommands. Writes to `data/reports/{daily,weekly}/<date>.md`.
 
 ### Plan adherence (parallelisable after report)
 - [x] **plan-01**: `src/health/plan/schema.py` — Pydantic model for `plan.yaml`.
 - [x] **plan-02**: `src/health/plan/loader.py` — load + validate plan.
 - [x] **plan-03**: `src/health/plan/adherence.py` — compare a week's activities/sleep/load against `weekly_targets`. Output a per-target score (0–100), an overall weighted score, and a list of misses with deltas.
-- [ ] **report-04**: Wire adherence into `health report weekly` (append a `## Plan Adherence` section).
-- [ ] **cli-03**: `health plan check --week YYYY-Www` standalone command.
+- [x] **report-04**: Wire adherence into `health report weekly` (append a `## Plan Adherence` section).
+- [x] **cli-03**: `health plan check --week YYYY-Www` standalone command.
 
 ### Polish
 - [ ] **docs-01**: Refresh `README.md` with the actual CLI behaviour once it stabilises.
