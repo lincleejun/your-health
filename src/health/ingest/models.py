@@ -1,23 +1,47 @@
 """Pydantic models for Garmin Connect payloads.
 
-Each model exposes a :py:meth:`from_garmin` classmethod that tolerates missing
-optional fields — the upstream API frequently omits keys when a device did not
-record a given metric. The raw payload is preserved on ``raw_json`` so we can
-re-derive new columns without re-pulling.
+Each day-scoped model exposes ``from_garmin(payload, *, for_date) -> Self | None``.
+The classmethod is tolerant of three real-world quirks of the Garmin API:
+
+* Some endpoints return an empty dict when no data was recorded that day — we
+  return ``None`` so the caller can simply skip the insert.
+* Some endpoints omit ``calendarDate`` at the level we expect — we fall back to
+  the ``for_date`` the caller is asking about.
+* Some payloads bury the day's record inside a list (``dateWeightList``) or a
+  nested DTO (``dailySleepDTO``) — we unwrap.
+
+The original payload is preserved on ``raw_json`` so we can re-derive new
+columns later without re-pulling from Garmin.
 """
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
+from datetime import date as _date  # avoid name clash with model field ``date``
 from typing import Any, Self
 
 from pydantic import BaseModel, ConfigDict
 
 
-def _parse_date(value: Any) -> date:
-    if isinstance(value, date) and not isinstance(value, datetime):
+def _parse_date(value: Any) -> _date:
+    if isinstance(value, _date) and not isinstance(value, datetime):
         return value
-    return date.fromisoformat(str(value))
+    return _date.fromisoformat(str(value))
+
+
+def _coerce_date(value: Any, *, fallback: _date) -> _date:
+    """Best-effort date parser. Accepts ISO strings, unix-ms ints, falls back."""
+    if value is None or value == "":
+        return fallback
+    if isinstance(value, _date) and not isinstance(value, datetime):
+        return value
+    if isinstance(value, int | float):
+        # Garmin sometimes encodes dates as unix milliseconds.
+        return datetime.fromtimestamp(float(value) / 1000.0, tz=UTC).date()
+    try:
+        return _date.fromisoformat(str(value))
+    except ValueError:
+        return fallback
 
 
 def _parse_datetime_utc(value: Any) -> datetime:
@@ -69,7 +93,7 @@ class Activity(_Base):
 
 
 class DailySummary(_Base):
-    date: date
+    date: _date
     steps: int | None = None
     resting_hr: float | None = None
     body_battery_min: int | None = None
@@ -79,9 +103,11 @@ class DailySummary(_Base):
     raw_json: dict[str, Any]
 
     @classmethod
-    def from_garmin(cls, payload: dict[str, Any]) -> Self:
+    def from_garmin(cls, payload: dict[str, Any], *, for_date: _date) -> Self | None:
+        if not payload:
+            return None
         return cls(
-            date=_parse_date(payload["calendarDate"]),
+            date=_coerce_date(payload.get("calendarDate"), fallback=for_date),
             steps=payload.get("totalSteps"),
             resting_hr=payload.get("restingHeartRate"),
             body_battery_min=payload.get("bodyBatteryLowestValue"),
@@ -93,7 +119,7 @@ class DailySummary(_Base):
 
 
 class Sleep(_Base):
-    date: date
+    date: _date
     total_sleep_s: int | None = None
     deep_s: int | None = None
     light_s: int | None = None
@@ -103,12 +129,14 @@ class Sleep(_Base):
     raw_json: dict[str, Any]
 
     @classmethod
-    def from_garmin(cls, payload: dict[str, Any]) -> Self:
+    def from_garmin(cls, payload: dict[str, Any], *, for_date: _date) -> Self | None:
         dto = payload.get("dailySleepDTO") or {}
+        if not dto:
+            return None
         scores = dto.get("sleepScores") or {}
         overall = scores.get("overall") or {}
         return cls(
-            date=_parse_date(dto["calendarDate"]),
+            date=_coerce_date(dto.get("calendarDate"), fallback=for_date),
             total_sleep_s=dto.get("sleepTimeSeconds"),
             deep_s=dto.get("deepSleepSeconds"),
             light_s=dto.get("lightSleepSeconds"),
@@ -120,17 +148,19 @@ class Sleep(_Base):
 
 
 class HrvDay(_Base):
-    date: date
+    date: _date
     weekly_avg: float | None = None
     last_night_avg: float | None = None
     status: str | None = None
     raw_json: dict[str, Any]
 
     @classmethod
-    def from_garmin(cls, payload: dict[str, Any]) -> Self:
+    def from_garmin(cls, payload: dict[str, Any], *, for_date: _date) -> Self | None:
         summary = payload.get("hrvSummary") or {}
+        if not summary:
+            return None
         return cls(
-            date=_parse_date(summary["calendarDate"]),
+            date=_coerce_date(summary.get("calendarDate"), fallback=for_date),
             weekly_avg=summary.get("weeklyAvg"),
             last_night_avg=summary.get("lastNightAvg"),
             status=summary.get("status"),
@@ -139,20 +169,31 @@ class HrvDay(_Base):
 
 
 class BodyComposition(_Base):
-    date: date
+    date: _date
     weight_kg: float | None = None
     body_fat_pct: float | None = None
     muscle_mass_kg: float | None = None
     raw_json: dict[str, Any]
 
     @classmethod
-    def from_garmin(cls, payload: dict[str, Any]) -> Self:
-        weight = payload.get("weight")
-        muscle = payload.get("muscleMass")
+    def from_garmin(cls, payload: dict[str, Any], *, for_date: _date) -> Self | None:
+        # Real Garmin shape is ``{dateWeightList: [...], totalAverage: {...}, ...}``.
+        # We persist the first weighing for the day; if there were none, skip.
+        items = payload.get("dateWeightList") or []
+        record: dict[str, Any]
+        if items:
+            record = items[0]
+        elif "calendarDate" in payload or "weight" in payload:
+            # Older / flattened shape — treat the payload itself as the record.
+            record = payload
+        else:
+            return None
+        weight = record.get("weight")
+        muscle = record.get("muscleMass")
         return cls(
-            date=_parse_date(payload["calendarDate"]),
+            date=_coerce_date(record.get("calendarDate") or record.get("date"), fallback=for_date),
             weight_kg=weight / 1000.0 if weight is not None else None,
-            body_fat_pct=payload.get("bodyFat"),
+            body_fat_pct=record.get("bodyFat"),
             muscle_mass_kg=muscle / 1000.0 if muscle is not None else None,
             raw_json=payload,
         )

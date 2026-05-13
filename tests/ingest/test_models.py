@@ -12,6 +12,8 @@ from health.ingest.models import (
     Sleep,
 )
 
+D = date(2026, 5, 10)
+
 
 def test_activity_from_garmin_happy_path() -> None:
     payload = {
@@ -63,8 +65,9 @@ def test_daily_summary_from_garmin_happy_path() -> None:
         "averageStressLevel": 31.0,
         "activeKilocalories": 612.0,
     }
-    d = DailySummary.from_garmin(payload)
-    assert d.date == date(2026, 5, 10)
+    d = DailySummary.from_garmin(payload, for_date=D)
+    assert d is not None
+    assert d.date == D
     assert d.steps == 8421
     assert d.resting_hr == 48.0
     assert d.body_battery_min == 20
@@ -73,11 +76,15 @@ def test_daily_summary_from_garmin_happy_path() -> None:
     assert d.calories_active == 612.0
 
 
-def test_daily_summary_tolerates_missing() -> None:
-    d = DailySummary.from_garmin({"calendarDate": "2026-05-10"})
-    assert d.date == date(2026, 5, 10)
-    assert d.steps is None
-    assert d.resting_hr is None
+def test_daily_summary_falls_back_to_for_date_when_calendar_date_missing() -> None:
+    d = DailySummary.from_garmin({"totalSteps": 5000}, for_date=D)
+    assert d is not None
+    assert d.date == D
+    assert d.steps == 5000
+
+
+def test_daily_summary_returns_none_on_empty_payload() -> None:
+    assert DailySummary.from_garmin({}, for_date=D) is None
 
 
 def test_sleep_from_garmin_nested_dto() -> None:
@@ -92,8 +99,9 @@ def test_sleep_from_garmin_nested_dto() -> None:
             "sleepScores": {"overall": {"value": 82.0}},
         }
     }
-    s = Sleep.from_garmin(payload)
-    assert s.date == date(2026, 5, 10)
+    s = Sleep.from_garmin(payload, for_date=D)
+    assert s is not None
+    assert s.date == D
     assert s.total_sleep_s == 27000
     assert s.deep_s == 4200
     assert s.light_s == 14400
@@ -109,9 +117,15 @@ def test_sleep_tolerates_missing_score() -> None:
             "sleepTimeSeconds": 27000,
         }
     }
-    s = Sleep.from_garmin(payload)
+    s = Sleep.from_garmin(payload, for_date=D)
+    assert s is not None
     assert s.sleep_score is None
     assert s.deep_s is None
+
+
+def test_sleep_returns_none_when_dto_missing() -> None:
+    assert Sleep.from_garmin({}, for_date=D) is None
+    assert Sleep.from_garmin({"sleepMovement": []}, for_date=D) is None
 
 
 def test_hrv_from_garmin_happy_path() -> None:
@@ -123,36 +137,56 @@ def test_hrv_from_garmin_happy_path() -> None:
             "status": "BALANCED",
         }
     }
-    h = HrvDay.from_garmin(payload)
-    assert h.date == date(2026, 5, 10)
+    h = HrvDay.from_garmin(payload, for_date=D)
+    assert h is not None
+    assert h.date == D
     assert h.weekly_avg == 55.0
     assert h.last_night_avg == 60.0
     assert h.status == "BALANCED"
 
 
-def test_hrv_tolerates_missing_summary() -> None:
-    h = HrvDay.from_garmin({"hrvSummary": {"calendarDate": "2026-05-10"}})
-    assert h.date == date(2026, 5, 10)
-    assert h.weekly_avg is None
-    assert h.status is None
+def test_hrv_returns_none_on_empty_payload() -> None:
+    assert HrvDay.from_garmin({}, for_date=D) is None
+    assert HrvDay.from_garmin({"hrvSummary": {}}, for_date=D) is None
 
 
-def test_body_composition_from_garmin_happy_path() -> None:
+def test_body_composition_from_dateWeightList() -> None:
+    """Real Garmin shape: a list of weighings under ``dateWeightList``."""
     payload = {
-        "calendarDate": "2026-05-10",
-        "weight": 72500.0,
-        "bodyFat": 18.5,
-        "muscleMass": 33000.0,
+        "startDate": "2026-05-10",
+        "endDate": "2026-05-10",
+        "dateWeightList": [
+            {
+                "date": "2026-05-10",
+                "weight": 72500.0,
+                "bodyFat": 18.5,
+                "muscleMass": 33000.0,
+            }
+        ],
+        "totalAverage": {},
     }
-    b = BodyComposition.from_garmin(payload)
-    assert b.date == date(2026, 5, 10)
+    b = BodyComposition.from_garmin(payload, for_date=D)
+    assert b is not None
+    assert b.date == D
     assert b.weight_kg == 72.5
     assert b.body_fat_pct == 18.5
     assert b.muscle_mass_kg == 33.0
 
 
-def test_body_composition_tolerates_missing() -> None:
-    b = BodyComposition.from_garmin({"calendarDate": "2026-05-10"})
-    assert b.date == date(2026, 5, 10)
-    assert b.weight_kg is None
-    assert b.body_fat_pct is None
+def test_body_composition_returns_none_when_no_weighings() -> None:
+    payload = {
+        "startDate": "2026-05-10",
+        "endDate": "2026-05-10",
+        "dateWeightList": [],
+        "totalAverage": {},
+    }
+    assert BodyComposition.from_garmin(payload, for_date=D) is None
+
+
+def test_body_composition_accepts_legacy_flat_payload() -> None:
+    """Older shape (or tests) might pass a flat dict directly."""
+    payload = {"calendarDate": "2026-05-10", "weight": 72500.0, "bodyFat": 18.5}
+    b = BodyComposition.from_garmin(payload, for_date=D)
+    assert b is not None
+    assert b.weight_kg == 72.5
+    assert b.body_fat_pct == 18.5

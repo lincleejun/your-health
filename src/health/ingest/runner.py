@@ -51,19 +51,30 @@ def _iter_dates(start: date, end: date) -> list[date]:
 
 
 def _write_bundle(conn: sqlite3.Connection, bundle: DayBundle) -> int:
-    """Persist all non-None fields of a DayBundle. Returns row count written."""
+    """Persist all non-None fields of a DayBundle. Returns row count written.
+
+    Each model's ``from_garmin`` may return ``None`` when Garmin reported no
+    data for the day — we simply skip those.
+    """
     written = 0
-    if bundle.summary is not None:
-        upsert_daily_summary(conn, DailySummary.from_garmin(bundle.summary))
+    d = bundle.date
+    if (
+        bundle.summary is not None
+        and (m := DailySummary.from_garmin(bundle.summary, for_date=d)) is not None
+    ):
+        upsert_daily_summary(conn, m)
         written += 1
-    if bundle.sleep is not None:
-        upsert_sleep(conn, Sleep.from_garmin(bundle.sleep))
+    if bundle.sleep is not None and (s := Sleep.from_garmin(bundle.sleep, for_date=d)) is not None:
+        upsert_sleep(conn, s)
         written += 1
-    if bundle.hrv is not None:
-        upsert_hrv(conn, HrvDay.from_garmin(bundle.hrv))
+    if bundle.hrv is not None and (h := HrvDay.from_garmin(bundle.hrv, for_date=d)) is not None:
+        upsert_hrv(conn, h)
         written += 1
-    if bundle.body_composition is not None:
-        upsert_body_composition(conn, BodyComposition.from_garmin(bundle.body_composition))
+    if (
+        bundle.body_composition is not None
+        and (b := BodyComposition.from_garmin(bundle.body_composition, for_date=d)) is not None
+    ):
+        upsert_body_composition(conn, b)
         written += 1
     return written
 
