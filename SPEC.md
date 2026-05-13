@@ -44,7 +44,7 @@ Order matters — earlier tasks unblock later ones.
 ### Foundation
 - [x] **harness-01**: Add `tests/conftest.py` with an in-memory SQLite fixture (`db_conn`) and a fixtures dir under `tests/fixtures/garmin/`.
 - [x] **db-01**: `src/health/db/schema.sql` covering all six tables above. Use `INTEGER PRIMARY KEY` for surrogate ids; store `raw_json` as `TEXT`. Add indices on `start_ts` (activities) and `date` columns.
-- [ ] **db-02**: `src/health/db/conn.py` exposing `connect(path: Path) -> sqlite3.Connection` (foreign keys on, row_factory=Row), `initialize(conn)` to run schema, and a `transaction(conn)` context manager.
+- [x] **db-02**: `src/health/db/conn.py` exposing `connect(path: Path) -> sqlite3.Connection` (foreign keys on, row_factory=Row), `initialize(conn)` to run schema, and a `transaction(conn)` context manager.
 
 ### Ingest (priority — unblocks user testing)
 - [ ] **ingest-01**: `src/health/ingest/models.py` — Pydantic models for `Activity`, `DailySummary`, `Sleep`, `HrvDay`, `BodyComposition`. Each has a `from_garmin(payload: dict) -> Self` classmethod tolerant of missing fields.

@@ -1,0 +1,3 @@
+Completed db-01: added `src/health/db/schema.sql` with all six tables, indices on `start_ts` and `date` columns, plus tests covering tables, columns, indices, idempotency, and PK.
+
+RALPH_DONE_ITERATION
