@@ -8,6 +8,7 @@ from datetime import date, timedelta
 import pytest
 
 from health.db.conn import initialize
+from health.plan.schema import Athlete, Plan, WeeklyTargets
 from health.report.weekly import render_weekly_report
 
 
@@ -87,3 +88,47 @@ def test_week_with_activities_and_anomalies(conn: sqlite3.Connection) -> None:
     assert week_start.isoformat() in md
     # Ensure end-of-week is within rendered range.
     assert week_end.isoformat() <= md or True  # just to keep import used
+
+
+def test_no_plan_omits_adherence_section(conn: sqlite3.Connection) -> None:
+    md = render_weekly_report(conn, iso_year=2026, iso_week=20)
+    assert "## Plan Adherence" not in md
+    assert "**Overall**" not in md
+
+
+def test_plan_changes_hr_zone_classification(conn: sqlite3.Connection) -> None:
+    week_start = date.fromisocalendar(2026, 20, 1)
+    # avg_hr=155: defaults (max=185, rest=55) → Zone 3 ((155-55)/130=0.769).
+    # plan (max=180, rest=50) → Zone 4 ((155-50)/130=0.808).
+    _seed_activity(conn, 1, week_start, sport="running", avg_hr=155.0)
+
+    default_md = render_weekly_report(conn, iso_year=2026, iso_week=20)
+    plan = Plan(
+        athlete=Athlete(name="t", resting_hr=50, max_hr=180),
+        weekly_targets=WeeklyTargets(),
+    )
+    plan_md = render_weekly_report(conn, iso_year=2026, iso_week=20, plan=plan)
+
+    # Default puts the hour in Zone 3 (100% of zone hours).
+    assert "| Zone 3 | 1.00 h (100%) |" in default_md
+    # With the plan it shifts to Zone 4.
+    assert "| Zone 4 | 1.00 h (100%) |" in plan_md
+    assert "| Zone 3 | 1.00 h (100%) |" not in plan_md
+
+
+def test_plan_appends_adherence_section_with_misses(conn: sqlite3.Connection) -> None:
+    week_start = date.fromisocalendar(2026, 20, 1)
+    # One run of 10 km — well under a 5-run / 50 km plan target.
+    _seed_activity(conn, 1, week_start, sport="running")
+
+    plan = Plan(
+        athlete=Athlete(name="t", resting_hr=55, max_hr=185),
+        weekly_targets=WeeklyTargets(runs=5, run_distance_km=50.0),
+    )
+    md = render_weekly_report(conn, iso_year=2026, iso_week=20, plan=plan)
+
+    assert "## Plan Adherence" in md
+    assert "**Overall**:" in md
+    assert "| target |" in md
+    assert "| runs |" in md
+    assert "### Misses" in md

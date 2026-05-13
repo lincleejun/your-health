@@ -17,6 +17,8 @@ from health.metrics.activity import (
 )
 from health.metrics.load import LoadPoint, compute_load_series
 from health.metrics.physiology import PhysiologySeries, TrendPoint, compute_physiology_series
+from health.plan.adherence import WeeklyAdherence, score_week
+from health.plan.schema import Plan
 from health.report.render import (
     render_kpi_table,
     render_section,
@@ -25,7 +27,9 @@ from health.report.render import (
 
 NO_DATA = "_no data_"
 
-# TODO(report-04): plan-driven HR thresholds. Until then use generic defaults.
+# Generic HR-zone anchors used when the caller does not supply a Plan. When a
+# Plan is provided, ``plan.athlete.max_hr`` / ``plan.athlete.resting_hr`` are
+# used in place of these defaults.
 _DEFAULT_MAX_HR = 185
 _DEFAULT_RESTING_HR = 55
 
@@ -125,10 +129,39 @@ def _anomalies_body(series: PhysiologySeries, week_start: date, week_end: date) 
     return "\n".join(bullets)
 
 
-def render_weekly_report(conn: sqlite3.Connection, *, iso_year: int, iso_week: int) -> str:
-    """Return a Markdown report for one ISO week."""
+def _adherence_body(result: WeeklyAdherence) -> str:
+    lines: list[str] = [f"- **Overall**: {result.overall_score:.0f}/100", ""]
+    lines.append("| target | planned | actual | score |")
+    lines.append("| --- | --- | --- | --- |")
+    for ts in result.target_scores:
+        lines.append(f"| {ts.target} | {ts.planned:g} | {ts.actual:.2f} | {ts.score:.0f} |")
+    body = "\n".join(lines)
+    if result.misses:
+        miss_lines = ["", "### Misses", ""]
+        miss_lines.extend(f"- {m}" for m in result.misses)
+        body = body + "\n" + "\n".join(miss_lines)
+    return body
+
+
+def render_weekly_report(
+    conn: sqlite3.Connection,
+    *,
+    iso_year: int,
+    iso_week: int,
+    plan: Plan | None = None,
+) -> str:
+    """Return a Markdown report for one ISO week.
+
+    If ``plan`` is provided, HR-zone classification uses
+    ``plan.athlete.max_hr`` / ``plan.athlete.resting_hr`` and a Plan Adherence
+    section is appended. Otherwise generic defaults are used and no adherence
+    section is rendered.
+    """
     week_start = date.fromisocalendar(iso_year, iso_week, 1)
     week_end = week_start + timedelta(days=6)
+
+    max_hr = plan.athlete.max_hr if plan is not None else _DEFAULT_MAX_HR
+    resting_hr = plan.athlete.resting_hr if plan is not None else _DEFAULT_RESTING_HR
 
     load = compute_load_series(conn, start=week_start, end=week_end)
     volume = compute_weekly_volume(conn, start=week_start, end=week_end)
@@ -136,8 +169,8 @@ def render_weekly_report(conn: sqlite3.Connection, *, iso_year: int, iso_week: i
         conn,
         start=week_start,
         end=week_end,
-        max_hr=_DEFAULT_MAX_HR,
-        resting_hr=_DEFAULT_RESTING_HR,
+        max_hr=max_hr,
+        resting_hr=resting_hr,
     )
     series = compute_physiology_series(conn, start=week_start, end=week_end)
 
@@ -152,4 +185,7 @@ def render_weekly_report(conn: sqlite3.Connection, *, iso_year: int, iso_week: i
         ),
         render_section("Anomalies of the week", _anomalies_body(series, week_start, week_end)),
     ]
+    if plan is not None:
+        adherence = score_week(conn, plan, iso_year=iso_year, iso_week=iso_week)
+        parts.append(render_section("Plan Adherence", _adherence_body(adherence)))
     return "\n".join(parts)
