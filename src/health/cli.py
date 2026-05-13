@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import time
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -19,9 +20,7 @@ from health.plan.loader import PlanLoadError, load_plan
 from health.report import _runner
 from health.report.daily import render_daily_report
 
-# reason: sibling worktree owns runner.py; we type IngestSummary as Any to avoid
-# importing a module that doesn't yet exist on this branch. The shape is
-# documented in PROMPT.md and exercised by tests.
+# reason: runner.py lives in a sibling worktree; keep IngestSummary Any.
 IngestSummary = Any
 
 app = typer.Typer(help="Personal health data CLI.", no_args_is_help=True)
@@ -34,16 +33,79 @@ def _main() -> None:
 
 _DEFAULT_DB = Path("./data/health.db")
 _DEFAULT_TOKEN_DIR = Path("./config/.garmin_tokens")
+_DEFAULT_PLAN = Path("./config/plan.yaml")
+_WEEK_RE = re.compile(r"^(\d{4})-W(\d{2})$")
+plan_app = typer.Typer(help="Plan tools.", no_args_is_help=True)
+app.add_typer(plan_app, name="plan")
+
+
+def _parse_iso_week(value: str) -> tuple[int, int]:
+    m = _WEEK_RE.match(value)
+    if not m:
+        raise typer.BadParameter("--week must look like 'YYYY-Www' (e.g. 2025-W03)")
+    year, week = int(m.group(1)), int(m.group(2))
+    try:
+        date.fromisocalendar(year, week, 1)
+    except ValueError as exc:
+        raise typer.BadParameter(f"--week: {exc}") from exc
+    return year, week
+
+
+@plan_app.command("check")
+def plan_check(
+    week: str = typer.Option(..., "--week", help="ISO week YYYY-Www (e.g. 2025-W03)."),
+    plan: Path = typer.Option(_DEFAULT_PLAN, "--plan", help="Path to plan.yaml."),  # noqa: B008
+    db: Path = typer.Option(_DEFAULT_DB, "--db", help="SQLite database path."),  # noqa: B008
+) -> None:
+    """Score adherence for one ISO week against the plan's weekly targets."""
+    iso_year, iso_week = _parse_iso_week(week)
+
+    try:
+        plan_obj = load_plan(Path(plan))
+    except PlanLoadError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+
+    try:
+        conn = connect(db)
+        initialize(conn)
+    except Exception as exc:
+        typer.echo(f"Failed to initialise database at {db}: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    # reason: importlib lets tests monkeypatch ``score_week`` post-import.
+    import importlib
+
+    score_fn = importlib.import_module("health.plan.adherence").score_week
+    result = score_fn(conn, plan_obj, iso_year=iso_year, iso_week=iso_week)
+
+    console = Console()
+    title = f"Adherence {iso_year}-W{iso_week:02d}"
+    table = Table(title=title, show_header=True, header_style="bold")
+    for col in ("target", "planned", "actual", "score", "delta"):
+        table.add_column(col)
+    for ts in result.target_scores:
+        row = (
+            ts.target,
+            f"{ts.planned:g}",
+            f"{ts.actual:.2f}",
+            f"{ts.score:.0f}",
+            f"{ts.delta:+.2f}",
+        )
+        table.add_row(*row)
+    console.print(table)
+    console.print(f"Overall: {result.overall_score:.1f}/100")
+    console.print(f"Misses: {len(result.misses)}")
+    for miss in result.misses[:5]:
+        console.print(f"  - {miss}")
 
 
 def _load_env() -> None:
     """Load ``config/.env`` first (preferred), then fall back to ``.env``."""
-    cfg = Path("config/.env")
-    if cfg.is_file():
-        load_dotenv(cfg)
-    fallback = Path(".env")
-    if fallback.is_file():
-        load_dotenv(fallback, override=False)
+    if Path("config/.env").is_file():
+        load_dotenv(Path("config/.env"))
+    if Path(".env").is_file():
+        load_dotenv(Path(".env"), override=False)
 
 
 def _resolve_range(days: int, start: date | None) -> tuple[date, date]:
@@ -60,21 +122,18 @@ def _render_summary(summary: IngestSummary, elapsed: float, start_d: date, end_d
     table = Table(title="Garmin ingest summary", show_header=True, header_style="bold")
     table.add_column("field")
     table.add_column("value")
-
-    start_str = summary.started_at.isoformat(timespec="seconds")
-    end_str = summary.finished_at.isoformat(timespec="seconds")
-    range_str = f"{start_d.isoformat()}..{end_d.isoformat()}"
-
-    table.add_row("run_id", str(summary.run_id))
-    table.add_row("range", range_str)
-    table.add_row("days_requested", str(summary.days_requested))
-    table.add_row("rows_written", str(summary.rows_written))
-    table.add_row("errors", str(len(summary.errors)))
-    table.add_row("started_at", start_str)
-    table.add_row("finished_at", end_str)
-    table.add_row("elapsed_seconds", f"{elapsed:.2f}")
+    for k, v in (
+        ("run_id", str(summary.run_id)),
+        ("range", f"{start_d.isoformat()}..{end_d.isoformat()}"),
+        ("days_requested", str(summary.days_requested)),
+        ("rows_written", str(summary.rows_written)),
+        ("errors", str(len(summary.errors))),
+        ("started_at", summary.started_at.isoformat(timespec="seconds")),
+        ("finished_at", summary.finished_at.isoformat(timespec="seconds")),
+        ("elapsed_seconds", f"{elapsed:.2f}"),
+    ):
+        table.add_row(k, v)
     console.print(table)
-
     if summary.errors:
         console.print("[bold yellow]First errors:[/bold yellow]")
         for err in summary.errors[:5]:
@@ -128,9 +187,7 @@ def ingest(
         typer.echo(f"Garmin login failed: {exc}", err=True)
         raise typer.Exit(1) from exc
 
-    # reason: runner.py lands in a sibling worktree; inline import lets tests
-    # monkeypatch ``health.ingest.runner.ingest_range`` and lets this branch
-    # compile before the module exists on disk.
+    # reason: inline import lets tests monkeypatch ``ingest_range``.
     import importlib
 
     ingest_range = importlib.import_module("health.ingest.runner").ingest_range
